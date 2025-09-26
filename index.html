@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>LTV Calculator</title>
+<style>
+  :root { --bg:#0b0f14; --panel:#111827; --muted:#6b7280; --text:#e5e7eb; --accent:#22c55e; --border:#1f2937; --danger:#ef4444; }
+  * { box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+  body { margin:0; background:var(--bg); color:var(--text); padding:32px; }
+  .wrap { max-width:900px; margin:auto; }
+  h1 { margin:0 0 6px; font-size:24px; }
+  p.sub { color:var(--muted); margin:0 0 24px; }
+  .grid { display:grid; gap:16px; grid-template-columns: repeat(12,1fr); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; }
+  .span12 { grid-column: span 12; }
+  .span6 { grid-column: span 6; }
+  .span4 { grid-column: span 4; }
+  label { display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
+  input { width:100%; padding:12px 12px; border-radius:10px; background:#0b1220; border:1px solid var(--border); color:var(--text); }
+  input:focus { outline:none; border-color:#374151; }
+  .row { display:flex; gap:12px; align-items:center; }
+  .btn { background:var(--accent); color:#052e16; border:0; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600; }
+  .btn.secondary { background:#0b1220; color:var(--text); border:1px solid var(--border); }
+  .kpi { display:flex; justify-content:space-between; align-items:center; padding:14px; border-radius:12px; background:#0c1525; border:1px solid var(--border); }
+  .kpi h2 { margin:0; font-size:18px; }
+  .kpi .value { font-size:22px; font-weight:700; }
+  .note { color:var(--muted); font-size:12px; }
+  .error { color:var(--danger); font-size:12px; display:none; margin-top:6px; }
+  @media (max-width:900px){ .span6,.span4 { grid-column: span 12; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Customer Lifetime Value (LTV) Calculator</h1>
+    <p class="sub">Estimate LTV using monthly churn. LTV = (AOV × Purchases/mo × Gross Margin) × (1 / Churn).</p>
+
+    <div class="grid">
+      <div class="card span6">
+        <div class="grid">
+          <div class="span6">
+            <label for="aov">Average Order Value (AOV)</label>
+            <input id="aov" type="number" min="0" step="0.01" value="120">
+          </div>
+          <div class="span6">
+            <label for="freq">Purchases per Customer / Month</label>
+            <input id="freq" type="number" min="0" step="0.01" value="1.2">
+          </div>
+          <div class="span6">
+            <label for="margin">Gross Margin (%)</label>
+            <input id="margin" type="number" min="0" max="100" step="0.1" value="70">
+          </div>
+          <div class="span6">
+            <label for="churn">Monthly Churn (%)</label>
+            <input id="churn" type="number" min="0.01" max="100" step="0.01" value="3.5">
+            <div id="churnError" class="error">Churn must be greater than 0%.</div>
+          </div>
+          <div class="span6">
+            <label for="cac">CAC (optional)</label>
+            <input id="cac" type="number" min="0" step="0.01" placeholder="e.g. 150">
+          </div>
+          <div class="span6 row" style="margin-top:28px">
+            <button id="calc" class="btn" aria-label="Calculate LTV">Calculate</button>
+            <button id="reset" class="btn secondary" aria-label="Reset inputs">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card span6" aria-live="polite">
+        <div class="kpi" style="margin-bottom:12px">
+          <h2>Projected LTV</h2>
+          <div id="ltv" class="value">$0.00</div>
+        </div>
+        <div class="kpi" style="margin-bottom:12px">
+          <h2>Payback (Months)</h2>
+          <div id="payback" class="value">—</div>
+        </div>
+        <div class="kpi">
+          <h2>LTV / CAC</h2>
+          <div id="ratio" class="value">—</div>
+        </div>
+        <p class="note" style="margin-top:10px">
+          Tip: A healthy LTV/CAC is typically &ge; 3. If CAC is omitted, ratio and payback are hidden.
+        </p>
+      </div>
+
+      <div class="card span12">
+        <strong>Assumptions</strong>
+        <ul class="note">
+          <li>ARPU/month = AOV × Purchases/month.</li>
+          <li>Expected lifespan (months) ≈ 1 / monthly churn.</li>
+          <li>LTV uses gross margin; this aligns with investor-grade best practice.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  function fmt(n){ return n.toLocaleString(undefined,{style:'currency',currency:'USD'}); }
+
+  function compute(){
+    const aov = +$('aov').value || 0;
+    const freq = +$('freq').value || 0;
+    const marginPct = Math.min(Math.max(+$('margin').value || 0,0),100);
+    const churnPct = +$('churn').value;
+    const cac = +$('cac').value || null;
+
+    if (!churnPct || churnPct <= 0){
+      $('churnError').style.display = 'block';
+      return;
+    } else {
+      $('churnError').style.display = 'none';
+    }
+
+    const margin = marginPct/100;
+    const churn = churnPct/100;
+
+    const arpuMonth = aov * freq;
+    const lifespanMonths = 1 / churn;
+    const ltv = arpuMonth * margin * lifespanMonths;
+
+    $('ltv').textContent = fmt(ltv);
+
+    if (cac && cac > 0){
+      const ratio = ltv / cac;
+      $('ratio').textContent = ratio.toFixed(2) + '×';
+      const paybackMonths = cac / (arpuMonth * margin || 1);
+      $('payback').textContent = paybackMonths === Infinity ? '—' : paybackMonths.toFixed(1);
+    } else {
+      $('ratio').textContent = '—';
+      $('payback').textContent = '—';
+    }
+  }
+
+  $('calc').addEventListener('click', compute);
+  $('reset').addEventListener('click', () => {
+    $('aov').value = 120; $('freq').value = 1.2; $('margin').value = 70; $('churn').value = 3.5; $('cac').value = '';
+    compute();
+  });
+
+  compute();
+</script>
+</body>
+</html>
